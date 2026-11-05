@@ -10,12 +10,12 @@ class ControlJointValue:
     vel_desired: float = 0.0
  
 spot_ctrl_joint_infos = {
-    "fl.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.8, 0.0),
-    "fl.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -0.8, 0.0),
-    "fr.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.8, 0.0),
-    "fr.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -0.8, 0.0),
-    "hl.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.8, 0.0),
-    "hl.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -0.8, 0.0),
-    "hr.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.8, 0.0),
-    "hr.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -0.8, 0.0),
+    "fl.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.90, 0.0),
+    "fl.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -1.6, 0.0),
+    "fr.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.9, 0.0),
+    "fr.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -1.6, 0.0),
+    "hl.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.90, 0.0),
+    "hl.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -1.6, 0.0),
+    "hr.hy": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, 0.9, 0.0),
+    "hr.kn": ControlJointValue(  10000.0, 0.01, 1.0, 14.0, -1.6, 0.0),
  }

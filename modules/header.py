@@ -8,7 +8,7 @@ def addHeader(rootnode,
     settings = rootnode.addChild('Settings')
     settings.addObject('RequiredPlugin', name="external",
                        pluginName=['BeamAdapter', 'SoftRobots', 'MultiThreading',
-                                   'SoftRobots.Inverse', 'ArticulatedSystemPlugin'
+                                   'SoftRobots.Inverse', 'ArticulatedSystemPlugin', 'Sofa.PointCloud'
                                    ])
     settings.addObject('RequiredPlugin', name="header",
                        pluginName=['Sofa.GL.Component.Shader',  # needed for LightManager
@@ -52,7 +52,7 @@ def addHeader(rootnode,
             rootnode.addObject('QPInverseProblemSolver', name='ConstraintSolver', tolerance=1e-8, maxIterations=500,
                                multithreading=multithreading, responseFriction=friction, allowSliding=False, epsilon=0.01)
         else:
-            rootnode.addObject('ProjectedGaussSeidelConstraintSolver', name='ConstraintSolver', tolerance=1e-8, maxIterations=500,
+            rootnode.addObject('BlockGaussSeidelConstraintSolver', name='ConstraintSolver', tolerance=1e-8, maxIterations=500,
                                multithreading=multithreading)
     else:
         rootnode.addObject('DefaultAnimationLoop')
