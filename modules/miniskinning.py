@@ -21,6 +21,7 @@ class SplatAssignment(Sofa.Core.Controller):
         self.name = "SplatAssignment"
         self.robot, self.cloud = robot, cloud
         self.done = False
+        self.assignment()
 
 
     def onEvent(self, event):

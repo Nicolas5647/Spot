@@ -84,7 +84,7 @@ def addSolvers(node, rayleighMass=0., rayleighStiffness=0.01, firstOrder=False,
         if iterativeSolver:
             node.addObject('CGLinearSolver', name='solver', iterations=500, tolerance=1e-10, threshold=1e-10)
         else:
-            node.addObject('SparseLDLSolver', name='solver', template="CompressedRowSparseMatrixd")
+            node.addObject('SparseLDLSolver', name='solver', template="CompressedRowSparseMatrixMat3x3d")
 
     if not iterativeSolver:
         node.addObject('GenericConstraintCorrection', linearSolver=node.solver.getLinkPath())

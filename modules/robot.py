@@ -3,9 +3,10 @@ import numpy as np
 
 class SpotRobot(Sofa.Prefab):
 
-    def __init__(self, urdf="data/model.urdf"):
+    def __init__(self, urdf="data/model.urdf", freeFlyer=False):
         Sofa.Prefab.__init__(self)
         self.name = 'SpotRobot'
+        self.freeFlyer = freeFlyer
         self.urdf = urdf
 
         # Add the robot model to the scene graph
@@ -24,10 +25,9 @@ class SpotRobot(Sofa.Prefab):
         self.addObject('URDFModelLoader', 
                         filename=self.urdf, 
                         modelDirectory="data/", 
-                        useFreeFlyerRootJoint=False, 
+                        useFreeFlyerRootJoint=self.freeFlyer, 
                         printLog=False, 
-                        addCollision=False, 
-                        addJointsActuators=False)
+                        addCollision=False)
         robot = self.getChild("Robot")
         mechanical = robot.Model.getMechanicalState()
         mechanical.showObject = False
