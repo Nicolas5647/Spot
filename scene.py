@@ -7,42 +7,51 @@ from modules.robotconfigurations import spot_ctrl_joint_infos as spotInitConfigu
 from urchin import URDF
 from modules.cloud import Cloud
 from modules.miniskinning import SplatAssignment
+from splib3 import animation
 
+def createScene(rootnode):
+    settings, modelling, simulation = addHeader(rootnode, inverse=True, withCollision=True)
+    rootnode.ConstraintSolver.epsilon = 1e-3
+    rootnode.addObject("InteractiveCamera", name="camera", computeZClip=False, zFar=10000)
+    rootnode.addObject("PointCloudRenderer", name="renderer", camera=rootnode.camera.linkpath)
+    rootnode.addObject(animation.AnimationManager(rootnode))
 
-def printTree(node, indent=0):
-    print(" " * indent + "[" + node.name.value + "]")
-    for obj in node.objects:
-        print(" " * (indent + 2) + "- " + obj.getClassName() + " : " + obj.name.value)
-    for child in node.children:
-        printTree(child, indent + 4)
+    addSolvers(simulation, rayleighStiffness=0)
+    #simulation.solver.printLog = True
+    #simulation.EulerImplicitIntegrationScheme.printLog = True
+    #simulation.GenericConstraintCorrection.printLog = True
+    #rootnode.ConstraintSolver.printLog = True
+    rootnode.VisualStyle.displayFlags = ["showVisual"]
+
+    setupRobot(rootnode, simulation)
+    #setupCube(rootnode, simulation)
+
+    return
 
 def addCube(simulation):
     cube = simulation.addChild("SpotRobot")
-    #cube.addObject('EulerImplicitIntegrationScheme')
-    #cube.addObject('SparseLDLSolver')
     cube.addObject('GenericConstraintCorrection', linearSolver=simulation.solver.linkpath, ODESolver=simulation.EulerImplicitIntegrationScheme.linkpath)
     cube.addObject('MechanicalObject', template='Rigid3', position=[-1, 0, 0, 0, 0, 0, 1])
-    cube.addObject('UniformMass', totalMass=0.01)
-    # SlidingActuator needs a PartialFixedProjectiveConstraint to fix the other directions
-    cube.addObject('PartialFixedProjectiveConstraint', template='Rigid3', fixedDirections=[0, 1, 1, 1, 1, 1])
-    cube.addObject('SlidingActuator', template='Rigid3', indices=0, direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.01)
 
     visual = cube.addChild('Visu')
     visual.addObject('MeshOBJLoader', filename='mesh/cube.obj', scale=0.1)
     visual.addObject('OglModel', src='@MeshOBJLoader')
     visual.addObject('RigidMapping')
 
-def createScene(rootnode):
-    settings, modelling, simulation = addHeader(rootnode, inverse=True, withCollision=True)
-    rootnode.addObject("InteractiveCamera", name="camera", computeZClip=False, zFar=10000)
-    rootnode.addObject("PointCloudRenderer", name="renderer", camera=rootnode.camera.linkpath)
+def setupCube(rootnode, simulation):
+    addCube(simulation)
+    robot = simulation.SpotRobot
+    addSliddingActuator(robot)
 
-    addSolvers(simulation, rayleighStiffness=0)
-    #simulation.solver.printLog = True
-    #simulation.EulerImplicitIntegrationScheme.printLog = True
-    #simulation.GenericConstraintCorrection.printLog = True
-    rootnode.VisualStyle.displayFlags = ["showVisual"]
+    target = addTarget(rootnode)
+    addRootJointEffector(robot, target)
 
+    def my_animation(target, factor):
+        with target.position.writeableArray() as w:
+            w[0][3:7] = [0, np.sin((factor - 1) * pi/16), 0, np.cos((factor - 1) * pi/16)]
+    animation.animate(my_animation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
+
+def setupRobot(rootnode, simulation):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
     robot = simulation.SpotRobot.Robot
     robot.Joints.universe.activated = False
@@ -50,25 +59,29 @@ def createScene(rootnode):
     jointNodes = [n for n in robot.Joints.children
                   if n.name.value not in ("universe", "root_joint")]
     positions = np.copy(robot.getMechanicalState().position.value)
-    addJointConstraint(robot, jointNodes, positions)
-
+    constraints = addJointConstraint(robot, jointNodes, positions)
     
     tmp = np.copy(robot.dofs.position.value)
     robot.dofs.position.value = positions.tolist()
     addJointActuator(robot, jointNodes)
-    addSliddingActuator(simulation)
+    addSliddingActuator(simulation.SpotRobot.RootJoint)
 
     goals = addGoals(rootnode)
     target = addTarget(rootnode)
 
     addEffector(robot, goals)
-    addRootJointEffector(robot, target)
+    addRootJointEffector(robot.Joints.root_joint, target)
+    removeConstraint(robot, constraints)
+
+    def my_animation(target, factor):
+        with target.position.writeableArray() as w:
+            w[0][3:7] = [0, np.sin((factor - 1) * pi/16), 0, np.cos((factor - 1) * pi/16)]
+    animation.animate(my_animation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
 
     addCloud(rootnode, robot)
     robot.dofs.position.value = tmp
 
-    disableVisual(robot)
-    return
+    #disableVisual(robot)
 
 def disableVisual(robot):
     # Masquer les meshes du robot
@@ -92,19 +105,19 @@ def addEffector(robot, goals):
     for node in robot.Joints.children:
         if node.name.value.endswith("kn"):
             effector = node.addChild("Effector")
-            effector.addObject("MechanicalObject", name="MechanicalObject", position=[0, 0, -0.35, 0, 0, 0, 1])            
+            effector.addObject("MechanicalObject", name="MechanicalObject", position=[0, 0, -0.35])            
             effector.addObject('PositionEffector', indices=0, effectorGoal=goals.children[i].dofs.findData('position').getLinkPath(),
-                            weight=1, useDirections=[0, 0, 0])
+                            weight=1, useDirections=[1, 1, 1])
             effector.addObject("RigidMapping")
             i += 1
 
 def addRootJointEffector(robot, target):
     # Effector: root_joint
-    effector = robot.Joints.root_joint.addChild('Effector')
-    effector.addObject('MechanicalObject', position=[0, 0, 0],
+    effector = robot.addChild('Effector')
+    effector.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0 ,0, 1],
                        showObject=True, drawMode=2, showObjectScale=0.1)
-    effector.addObject('PositionEffector', indices=0, effectorGoal=[0, 0, 0],
-                       weight=2, useDirections=[1, 0, 0])
+    effector.addObject('PositionEffector', template="Rigid3", indices=0, effectorGoal=[0, 0, 0, 0, 0, 0, 1],
+                       weight=1, useDirections=[1, 0, 0, 0, 1, 0])
     effector.addObject('RigidMapping')
     effector.PositionEffector.effectorGoal.setParent(target.MechanicalObject.position)
 
@@ -130,9 +143,10 @@ def addTarget(rootnode):
     target = rootnode.addChild('Target')
     target.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
     target.addObject('CGLinearSolver', tolerance=1e-5, iterations=20, threshold=1e-5)
-    target.addObject('MechanicalObject', template="Rigid3", position=[1, 0, 0, 0, 0, 0, 1], showObject=True, showObjectScale=0.1)
-    target.addObject('PartialFixedProjectiveConstraint', fixedDirections=[0, 1, 1])
-    target.addObject('UniformMass', totalMass=0.1)
+    target.addObject('MechanicalObject', template="Rigid3", position=[1, 0, 0, 0, 0, 0, 1], showObject=True, showObjectScale=0.15)
+    target.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
+                 fixedDirections=[0, 1, 1, 1, 0, 1])
+    target.addObject('UniformMass', template='Rigid3', totalMass=0.1)
     target.addObject('UncoupledConstraintCorrection')
     return target
 
@@ -147,16 +161,20 @@ def addJointActuator(robot, jointNodes):
                             maxAngle=max, minAngle=min, initAngle=0, 
                             maxAngleVariation=0.01)
 
-def addSliddingActuator(simulation):
+def addSliddingActuator(node):
     # Sliding Actuator
-    rootJoint = simulation.SpotRobot.RootJoint
-    rootJoint.addObject('UniformMass', template='Rigid3', totalMass=16)
-    rootJoint.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
-                        fixedDirections=[0, 1, 1, 1, 1, 1])
-    rootJoint.addObject('SlidingActuator', template='Rigid3', indices=0,
-                        direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.005)
+    node.addObject('UniformMass', template='Rigid3', totalMass=16)
+    node.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
+                        fixedDirections=[0, 1, 1, 1, 0, 1])
+    node.addObject('SlidingActuator', name="Slide", template='Rigid3', indices=0,
+                        direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.005,
+                        maxForce=100, minForce=-100)
+    node.addObject('SlidingActuator', name="Rotate", template='Rigid3', indices=0,
+                        direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.005,
+                        maxForce=100, minForce=-100)
 
 def addJointConstraint(robot, jointNodes, positions):
+    constraints = []
     for i in range(len(positions)):
         jointName = jointNodes[i].name.value
         value = 0 if jointName not in spotInitConfiguration else spotInitConfiguration[jointName].pos_desired
@@ -164,4 +182,17 @@ def addJointConstraint(robot, jointNodes, positions):
         joint = robot.addObject('JointConstraint', template='Vec1', name=jointName, index=i,
                                 valueType="displacement",
                                 value=value)
+        constraints.append(joint)
         MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
+    return constraints
+
+def removeConstraint(robot, constraints):
+    for c in constraints:
+        robot.removeObject(c)
+
+def printTree(node, indent=0):
+    print(" " * indent + "[" + node.name.value + "]")
+    for obj in node.objects:
+        print(" " * (indent + 2) + "- " + obj.getClassName() + " : " + obj.name.value)
+    for child in node.children:
+        printTree(child, indent + 4)
