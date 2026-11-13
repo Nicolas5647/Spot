@@ -94,7 +94,7 @@ def addEffector(robot, goals):
             effector = node.addChild("Effector")
             effector.addObject("MechanicalObject", name="MechanicalObject", position=[0, 0, -0.35, 0, 0, 0, 1])            
             effector.addObject('PositionEffector', indices=0, effectorGoal=goals.children[i].dofs.findData('position').getLinkPath(),
-                            useDirections=[0, 0, 0])
+                            weight=1, useDirections=[0, 0, 0])
             effector.addObject("RigidMapping")
             i += 1
 
@@ -130,7 +130,7 @@ def addTarget(rootnode):
     target = rootnode.addChild('Target')
     target.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
     target.addObject('CGLinearSolver', tolerance=1e-5, iterations=20, threshold=1e-5)
-    target.addObject('MechanicalObject', position=[1, 0, 0], showObject=True, drawMode=2, showObjectScale=0.1)
+    target.addObject('MechanicalObject', template="Rigid3", position=[1, 0, 0, 0, 0, 0, 1], showObject=True, showObjectScale=0.1)
     target.addObject('PartialFixedProjectiveConstraint', fixedDirections=[0, 1, 1])
     target.addObject('UniformMass', totalMass=0.1)
     target.addObject('UncoupledConstraintCorrection')
@@ -145,7 +145,7 @@ def addJointActuator(robot, jointNodes):
         max = urdf.joint_map[jointName].limit.upper
         robot.addObject('JointActuator', template='Vec1', name='joint' + str(i), index=i,
                             maxAngle=max, minAngle=min, initAngle=0, 
-                            maxAngleVariation=0.02)
+                            maxAngleVariation=0.01)
 
 def addSliddingActuator(simulation):
     # Sliding Actuator
