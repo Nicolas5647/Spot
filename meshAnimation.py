@@ -2,16 +2,30 @@ from modules.header import addHeader, addSolvers
 from spot import SpotRobot
 from splib3 import animation
 from math import pi
+import Sofa
+import Sofa.Core
 import Sofa.ImGui as MyGui
 import numpy as np
 import json
 
 
-with open("data/meshWalk.json", "r", encoding="UTF-8") as file:
+ANIMATION = "data/animation/joints/meshStand.json"
+duration = 1.4
+OUTPUT = "Spot/data/animation/reverse/stand.json"
+
+POSE_MIN_TIME = 0.2       # temps minimum avant de tester la stabilité (s)
+POSE_MAX_TIME = 5.0       # temps maximum avant enregistrement forcé (s)
+POSE_STABLE_STEPS = 10    # nombre de pas stables consécutifs requis
+
+with open(ANIMATION, "r", encoding="UTF-8") as file:
     data = json.load(file)
+
 dt = []
 for value in data["frames"]:
-    dt.append(value["t"]/data["duration"])
+    if data["duration"] != 0:
+        dt.append(value["t"]/data["duration"])
+    else:
+        dt.append(value["t"])
 
 def createScene(rootnode):
     settings, modelling, simulation = addHeader(rootnode, inverse=False, withCollision=True)
@@ -35,12 +49,12 @@ def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     """Linear interpolation between two values
 
     Examples:
-        LinearRamp(10, 20, 0.5)    
+        LinearRamp(10, 20, 0.5)
 
     """
     return (endValue-beginValue) * scale + beginValue
 
-def walk(target, effectors, factor):
+def anim(target, effectors, factor):
     i = 0
     while i < len(dt) - 1 and dt[i + 1] <= factor:
         i += 1
@@ -55,30 +69,75 @@ def walk(target, effectors, factor):
     save(effectors, factor)
 
 
-def walkDone(target, effectors, factor):
-    walk(target, effectors, factor)
+def animDone(target, effectors, factor):
+    anim(target, effectors, factor)
     frames = []
     tmp = framePositions[1]["t"]
     for f in framePositions:
         f["t"] -= tmp
         frames.append(f)
 
+    writeOutput(frames[1:])
 
-    js = {"duration" : data["duration"], "frames" : frames[1:]}
-    with open("effectors.json", "w", encoding="UTF-8") as f:
+
+def writeOutput(frames):
+    js = {"duration" : data["duration"], "frames" : frames}
+    with open(OUTPUT, "w", encoding="UTF-8") as f:
         json.dump(js, f, indent=2)
-    print(f"{len(framePositions)} frames sauvegardées")
+    print(f"{len(frames)} frames sauvegardées")
+
+
+def effectorsEntry(target, t):
+    entry = {"t": t}
+    for name, mo in target.items():
+        entry[name[:2]] = np.array(mo.position.value[0]).tolist()   # [x, y, z]
+    return entry
 
 framePositions = []
 nextKey = 0
 def save(target, factor):
     global nextKey
     while nextKey < len(dt) and factor >= dt[nextKey]:
-        entry = {"t": data["frames"][nextKey]["t"]}
-        for name, mo in target.items():
-            entry[name[:2]] = np.array(mo.position.value[0]).tolist()   # [x, y, z]
-        framePositions.append(entry)
+        framePositions.append(effectorsEntry(target, data["frames"][nextKey]["t"]))
         nextKey += 1
+
+
+class PoseRecorder(Sofa.Core.Controller):
+    def __init__(self, rootnode, effectors, *args, **kwargs):
+        Sofa.Core.Controller.__init__(self, *args, **kwargs)
+        self.rootnode = rootnode
+        self.effectors = effectors
+        self.previous = None
+        self.stableCount = 0
+        self.startTime = None
+        self.done = False
+
+    def currentPositions(self):
+        return np.array([np.array(mo.position.value[0]) for mo in self.effectors.values()])
+
+    def onAnimateEndEvent(self, event):
+        if self.done:
+            return
+
+        time = self.rootnode.time.value
+        if self.startTime is None:
+            self.startTime = time
+        elapsed = time - self.startTime
+
+        current = self.currentPositions()
+        if elapsed >= POSE_MIN_TIME and self.previous is not None \
+                and np.max(np.abs(current - self.previous)) < 1e-6:
+            self.stableCount += 1
+        else:
+            self.stableCount = 0
+        self.previous = current
+
+        stable = self.stableCount >= POSE_STABLE_STEPS
+        if stable or elapsed >= POSE_MAX_TIME:
+            self.done = True
+            if not stable:
+                print(f"Pose non stabilisée après {POSE_MAX_TIME}s, enregistrement quand même")
+            writeOutput([effectorsEntry(self.effectors, data["frames"][0]["t"])])
 
 
 def setupRobot(rootnode, simulation):
@@ -92,9 +151,11 @@ def setupRobot(rootnode, simulation):
 
     mechanical = addEffector(robot)
 
-    animation.animate(walk, {"target": constraints, "effectors": mechanical},
-                  duration=1.4, onDone=walkDone)
-    #animation.animate(walk, {"target" : constraints}, duration=1.4, mode="loop")
+    if data["duration"] == 0:
+        rootnode.addObject(PoseRecorder(rootnode, mechanical, name="PoseRecorder"))
+    else:
+        animation.animate(anim, {"target": constraints, "effectors": mechanical},
+                          duration=duration, onDone=animDone)
 
 
 def addEffector(robot):
@@ -115,7 +176,7 @@ def addJointConstraint(robot, jointNodes, positions):
     constraints = []
     for i in range(len(positions)):
         jointName = jointNodes[i].name.value
-        value = 0 if jointName not in  data["frames"][0]["joints"] else data["frames"][0]["joints"][jointName] 
+        value = 0 if jointName not in  data["frames"][0]["joints"] else data["frames"][0]["joints"][jointName]
         positions[i] = value
         joint = robot.addObject('JointConstraint', template='Vec1', name=jointName, index=i,
                                 valueType="displacement",

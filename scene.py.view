@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Camera version="1.0">
     <!--Vector of 3 reals (x, y, z)-->
-    <position value="0.384815 -2.07181 0.468127"/>
+    <position value="0.562683 -2.02081 0.465126"/>
     <!--Quaternion (x, y, z, w)-->
-    <orientation value="0.595078 -0.0213667 0.0148857 0.803246"/>
+    <orientation value="0.582204 0.0109157 0.0261955 0.812547"/>
     <!--Real-->
     <fieldOfView value="45"/>
     <!--Real-->
-    <distance value="2.17327"/>
+    <distance value="2.15862"/>
     <!--Real-->
     <zNear value="0.0309574"/>
     <!--Real-->

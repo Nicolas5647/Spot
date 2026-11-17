@@ -15,8 +15,8 @@ def addSkinningFrames(robot):
 
 
 class SplatAssignment(Sofa.Core.Controller):
-    def __init__(self, robot, cloud, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, robot, cloud, *args, **kwargs):
+        super().__init__(self, *args, **kwargs)
         self.addData('idx', type='vector<int>', value=[0]*len(cloud.geometry.container.positions.value))
         self.name = "SplatAssignment"
         self.robot, self.cloud = robot, cloud

@@ -1,0 +1,32 @@
+{
+  "format": "urdfbase.sequence",
+  "version": 2,
+  "name": "Unitree A1 · walk",
+  "model": "Unitree A1",
+  "loop": true,
+  "source": {
+    "gait": "walk"
+  },
+  "duration": 0,
+  "frames": [
+    {
+      "t": 0,
+      "label": "Sit",
+      "ease": "smooth",
+      "joints": {
+        "fr.hx": 0,
+        "fr.hy": 0.2,
+        "fr.kn": -1.2662978572969998,
+        "fl.hx": 0,
+        "fl.hy": 0.2,
+        "fl.kn": -1.2662978572969998,
+        "hr.hx": 0,
+        "hr.hy": 1.1,
+        "hr.kn": -2.5162978572970003,
+        "hl.hx": 0,
+        "hl.hy": 1.1,
+        "hl.kn": -2.5162978572970003
+      }
+    }
+  ]
+}

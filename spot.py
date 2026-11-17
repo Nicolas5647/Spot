@@ -5,17 +5,95 @@ from urchin import URDF
 from modules.cloud import Cloud
 from modules.miniskinning import SplatAssignment
 from splib3 import animation
+import Sofa
 import Sofa.ImGui as MyGui
 import numpy as np
 import json
+import os
+
+FOLDER = "data/animation/reverse"
+
+def spotAnimation(target, frames, dt, factor):
+    i = 0
+    while i < len(dt) - 1 and dt[i + 1] <= factor:
+        i += 1
+    j = i + 1 if i < len(dt) - 1 else 0
+    span = (dt[j] if j > i else 1.0) - dt[i]
+    local = (factor - dt[i]) / span if span > 0 else 0.0
+
+    with target.mapping.initialPoints.writeableArray() as w:
+        for k, node in enumerate(target.children):
+            name = node.name.value
+            w[k] = LinearRamp(frames["frames"][i][name],
+                              frames["frames"][j][name], local)
+
+def targetAnimation(target, frames, factor):
+    end = frames["position"] + frames["rotation"]
+    with target.MechanicalObject.position.writeableArray() as w:
+        w[0] = LinearRamp([0, 0, 0, 0, 0, 0, 1], end, factor)
 
 
-with open("data/walk.json", "r", encoding="UTF-8") as file:
-    data = json.load(file)
-dt = []
-for value in data["frames"]:
-    dt.append(value["t"]/data["duration"])
+class AnimationController(Sofa.Core.Controller):
+    def __init__(self, target, goals, *args, **kwargs):
+        super().__init__(self, *args, **kwargs)
+        self.name = "AnimationController"
+        self.done = False
+        self.target = target
+        self.goals = goals
+        self.index = 0
+        self.lastKey = ""
+        self.setup()
 
+    def setup(self):
+        self.animations = {}
+        for name in os.listdir(FOLDER):
+            path = os.path.join(FOLDER, name)
+            with open(path, "r", encoding="UTF-8") as file:
+                self.animations[name[:-5]] = json.load(file)
+
+        self.animationsTarget = {key : {"position": [0, 0, 0], "rotation": [0, 0, 0, 1]} for key in self.animations.keys()}
+        for key, anim in self.animations.items():
+            if len(anim["frames"]) > 1:
+                arrfl = np.asarray([anim["frames"][i]["fl"] for i in range(len(anim["frames"]))])
+                x = np.mean(abs(np.min(arrfl[:, 0]) - np.max(arrfl[:, 0])))
+                position = [x, 0, 0]
+                rotation = [0, 0, 0, 1]
+                self.animationsTarget[key] = {"position" : position, "rotation" : rotation}
+            elif key == "sit":
+                y = (anim["frames"][0]["fl"][1] + anim["frames"][0]["hl"][1])/2
+                print(y)
+                position = [0, y, 0]
+                rotation = [0, 0, 0, 1]
+                self.animationsTarget[key] = {"position" : position, "rotation" : rotation}
+
+    
+    def onKeypressedEvent(self, event):
+        key, value = list(self.animations.items())[self.index]
+        frames = self.animations[key]
+        dt = []
+        for value in frames["frames"]:
+            if frames["duration"] != 0:
+                dt.append(value["t"]/frames["duration"])
+            else:
+                dt.append(value["t"])
+        print(f"{key} animation")
+        
+        animation.animate(spotAnimation, {"target" : self.goals, "frames" : frames, "dt" : dt}, duration=frames["duration"], mode="pingpong")
+        if key in self.animationsTarget and self.lastKey != key:
+            #print("Test :", frames["duration"], self.animationsTarget[key])
+            animation.animate(targetAnimation, {"target" : self.target, "frames" : self.animationsTarget[key]}, duration=frames["duration"], mode="pingpong")
+            self.lastKey = key
+
+        if self.index < len(self.animations.values()) - 1:
+            self.index += 1
+        else:
+            self.index = 0
+
+    def onAnimateBeginEvent(self, event):
+        if self.done:
+            return
+        self.done = True
+        self.onKeypressedEvent("")
 
 def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     begin = np.asarray(beginValue, dtype=float)
@@ -23,24 +101,10 @@ def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     return (end - begin) * scale + begin
 
 
-def targetAnimation(target, factor):
+def tmpAnimation(target, factor):
     with target.position.writeableArray() as w:
         w[0][3:7] = [0, np.sin((factor - 0.5) * pi/16), 0, np.cos((factor - 0.5) * pi/16)]
         #w[0][:3] = [np.cos(factor) - 0.5, 0, 0]
-
-def walkAnimation(target, factor):
-    i = 0
-    while i < len(dt) - 1 and dt[i + 1] <= factor:
-        i += 1
-    j = i + 1 if i < len(dt) - 1 else 0
-    span = (dt[j] if j > i else 1.0) - dt[i]
-    local = (factor - dt[i]) / span if span > 0 else 0.0
-    for node in target.children:
-        begin = data["frames"][i][node.name.value]
-        end = data["frames"][j][node.name.value]
-        with node.dofs.position.writeableArray() as w:
-            w[0][:3] = LinearRamp(begin, end, local)
-    
 
 def setupRobot(rootnode, simulation):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
@@ -57,15 +121,15 @@ def setupRobot(rootnode, simulation):
     addJointActuator(robot, jointNodes)
     addSliddingActuator(simulation.SpotRobot.RootJoint)
 
-    goals = addGoals(rootnode)
     target = addTarget(rootnode)
+    goals = addGoals(target)
 
     addEffector(robot, goals)
     addRootJointEffector(robot.Joints.root_joint, target)
     removeConstraint(robot, constraints)
 
-    animation.animate(targetAnimation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
-    animation.animate(walkAnimation, {"target" : goals}, duration=1.4, mode="loop")
+    rootnode.addObject(AnimationController(target, goals))
+    #animation.animate(targetAnimation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
 
     addCloud(rootnode, robot)
     robot.dofs.position.value = tmp
@@ -107,19 +171,20 @@ def addSliddingActuator(node):
                         fixedDirections=[0, 1, 1, 1, 0, 1])
     node.addObject('SlidingActuator', name="Slide", template='Rigid3', indices=0,
                         direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.01,
-                        maxForce=100, minForce=-100)
+                        maxForce=1000, minForce=-1000)
     node.addObject('SlidingActuator', name="Rotate", template='Rigid3', indices=0,
                         direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.01,
-                        maxForce=100, minForce=-100)
+                        maxForce=1000, minForce=-1000)
 
 def addEffector(robot, goals):
     # Effector: Jambes
     i = 0
     for node in robot.Joints.children:
         if node.name.value.endswith("kn"):
+            leg = node.name.value[:2]           
             effector = node.addChild("Effector")
             effector.addObject("MechanicalObject", name="MechanicalObject", position=[0, 0, -0.35])            
-            effector.addObject('PositionEffector', indices=0, effectorGoal=goals.children[i].dofs.findData('position').getLinkPath(),
+            effector.addObject('PositionEffector', indices=0, effectorGoal=goals.getChild(leg).dofs.position.getLinkPath(),
                             weight=1, useDirections=[1, 1, 1])
             effector.addObject("RigidMapping")
             i += 1
@@ -143,13 +208,19 @@ def addGoals(rootnode):
                  [0.0017371584582933086, -0.165945, -0.3800290937445745]]
     names = ["fl", "fr", "hl", "hr"]
     goals = rootnode.addChild("Goals")
-    for i in range(4):
-        goal = goals.addChild(names[i])
-        goal.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
-        goal.addObject('CGLinearSolver', iterations=25, tolerance=1e-5, threshold=1e-5)
-        goal.addObject('MechanicalObject', name='dofs', position=positions[i],
-                        showObject=True, showObjectScale=0.05, drawMode=2)
-        goal.addObject('UncoupledConstraintCorrection')
+    goals.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
+    goals.addObject('CGLinearSolver', iterations=25, tolerance=1e-5, threshold=1e-5)
+    goals.addObject('MechanicalObject', name='dofs', template='Vec3',
+                    position=positions,
+                    showObject=True, showObjectScale=0.05, drawMode=2)
+    goals.addObject('UncoupledConstraintCorrection')
+    goals.addObject('RigidMapping', name="mapping")
+    
+    for i, name in enumerate(names):
+        g = goals.addChild(name)
+        g.addObject('MechanicalObject', name='dofs', template='Vec3')
+        g.addObject('SubsetMapping', input=goals.dofs.getLinkPath(),
+                    output=g.dofs.getLinkPath(), indices=[i], handleTopologyChange=False)
     return goals
 
 def addTarget(rootnode):
