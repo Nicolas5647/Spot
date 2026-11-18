@@ -9,23 +9,13 @@ import numpy as np
 import json
 
 
-ANIMATION = "data/animation/joints/meshStand.json"
-duration = 1.4
-OUTPUT = "Spot/data/animation/reverse/stand.json"
+ANIMATION = "data/animation/joints/meshSit.json"
+OUTPUT = "Spot/data/animation/reverse/test.json"
 
-POSE_MIN_TIME = 0.2       # temps minimum avant de tester la stabilité (s)
-POSE_MAX_TIME = 5.0       # temps maximum avant enregistrement forcé (s)
-POSE_STABLE_STEPS = 10    # nombre de pas stables consécutifs requis
+POSE_MIN_TIME = 0.2
+POSE_MAX_TIME = 5.0
+POSE_STABLE_STEPS = 10
 
-with open(ANIMATION, "r", encoding="UTF-8") as file:
-    data = json.load(file)
-
-dt = []
-for value in data["frames"]:
-    if data["duration"] != 0:
-        dt.append(value["t"]/data["duration"])
-    else:
-        dt.append(value["t"])
 
 def createScene(rootnode):
     settings, modelling, simulation = addHeader(rootnode, inverse=False, withCollision=True)
@@ -54,7 +44,7 @@ def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     """
     return (endValue-beginValue) * scale + beginValue
 
-def anim(target, effectors, factor):
+def anim(target, data, dt, effectors, factor):
     i = 0
     while i < len(dt) - 1 and dt[i + 1] <= factor:
         i += 1
@@ -66,21 +56,21 @@ def anim(target, effectors, factor):
         end = data["frames"][j]["joints"][constraint.name.value]
         constraint.value = LinearRamp(begin, end, local)
 
-    save(effectors, factor)
+    save(effectors, data, dt, factor)
 
 
-def animDone(target, effectors, factor):
-    anim(target, effectors, factor)
+def animDone(target, data, dt, effectors, factor):
+    anim(target, data, dt, effectors, factor)
     frames = []
     tmp = framePositions[1]["t"]
     for f in framePositions:
         f["t"] -= tmp
         frames.append(f)
 
-    writeOutput(frames[1:])
+    writeOutput(frames[1:], data)
 
 
-def writeOutput(frames):
+def writeOutput(frames, data):
     js = {"duration" : data["duration"], "frames" : frames}
     with open(OUTPUT, "w", encoding="UTF-8") as f:
         json.dump(js, f, indent=2)
@@ -95,7 +85,7 @@ def effectorsEntry(target, t):
 
 framePositions = []
 nextKey = 0
-def save(target, factor):
+def save(target, data, dt, factor):
     global nextKey
     while nextKey < len(dt) and factor >= dt[nextKey]:
         framePositions.append(effectorsEntry(target, data["frames"][nextKey]["t"]))
@@ -103,13 +93,14 @@ def save(target, factor):
 
 
 class PoseRecorder(Sofa.Core.Controller):
-    def __init__(self, rootnode, effectors, *args, **kwargs):
+    def __init__(self, rootnode, data, effectors, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
         self.rootnode = rootnode
         self.effectors = effectors
         self.previous = None
         self.stableCount = 0
         self.startTime = None
+        self.data = data
         self.done = False
 
     def currentPositions(self):
@@ -137,8 +128,20 @@ class PoseRecorder(Sofa.Core.Controller):
             self.done = True
             if not stable:
                 print(f"Pose non stabilisée après {POSE_MAX_TIME}s, enregistrement quand même")
-            writeOutput([effectorsEntry(self.effectors, data["frames"][0]["t"])])
+            writeOutput([effectorsEntry(self.effectors, self.data["frames"][0]["t"])], self.data)
 
+def read():
+    with open(ANIMATION, "r", encoding="UTF-8") as file:
+        data = json.load(file)
+
+    dt = []
+    for value in data["frames"]:
+        if data["duration"] != 0:
+            dt.append(value["t"]/data["duration"])
+        else:
+            dt.append(value["t"])
+
+    return data, dt
 
 def setupRobot(rootnode, simulation):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=False))
@@ -147,15 +150,15 @@ def setupRobot(rootnode, simulation):
     jointNodes = [n for n in robot.Joints.children
                   if n.name.value not in ("universe", "root_joint")]
     positions = np.copy(robot.getMechanicalState().position.value)
-    constraints = addJointConstraint(robot, jointNodes, positions)
+    data, dt = read()
+    constraints = addJointConstraint(robot, data, jointNodes, positions)
 
     mechanical = addEffector(robot)
-
     if data["duration"] == 0:
-        rootnode.addObject(PoseRecorder(rootnode, mechanical, name="PoseRecorder"))
+        rootnode.addObject(PoseRecorder(rootnode, data, mechanical, name="PoseRecorder"))
     else:
-        animation.animate(anim, {"target": constraints, "effectors": mechanical},
-                          duration=duration, onDone=animDone)
+        animation.animate(anim, {"target": constraints, "data": data, "dt": dt, "effectors": mechanical},
+                          duration=data["duration"], onDone=animDone)
 
 
 def addEffector(robot):
@@ -172,7 +175,7 @@ def addEffector(robot):
     return mechanicals
 
 
-def addJointConstraint(robot, jointNodes, positions):
+def addJointConstraint(robot, data, jointNodes, positions):
     constraints = []
     for i in range(len(positions)):
         jointName = jointNodes[i].name.value
