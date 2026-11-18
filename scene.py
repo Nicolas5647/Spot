@@ -7,9 +7,10 @@ from splib3 import animation
 def createScene(rootnode):
     settings, modelling, simulation = addHeader(rootnode, inverse=True, withCollision=True)
     rootnode.ConstraintSolver.epsilon = 1e-3
-    rootnode.addObject("InteractiveCamera", name="camera", computeZClip=False, zFar=10000)
+    rootnode.addObject("InteractiveCamera", name="camera")
     rootnode.addObject("PointCloudRenderer", name="renderer", camera=rootnode.camera.linkpath)
-    rootnode.addObject(animation.AnimationManager(rootnode))
+    manager = animation.AnimationManager(rootnode)
+    rootnode.addObject(manager)
 
     addSolvers(simulation, rayleighStiffness=0)
     #simulation.solver.printLog = True
@@ -18,7 +19,7 @@ def createScene(rootnode):
     #rootnode.ConstraintSolver.printLog = True
     rootnode.VisualStyle.displayFlags = ["showVisual"]
 
-    setupRobot(rootnode, simulation)
+    setupRobot(rootnode, simulation, manager)
     #setupCube(rootnode, simulation)
 
     return

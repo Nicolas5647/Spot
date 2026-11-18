@@ -27,21 +27,31 @@ def spotAnimation(target, frames, dt, factor):
             w[k] = LinearRamp(frames["frames"][i][name],
                               frames["frames"][j][name], local)
 
+begin = [0, 0, 0, 0, 0, 0, 1]
 def targetAnimation(target, frames, factor):
-    end = frames["position"] + frames["rotation"]
+    global begin
+    if factor == 0:
+        begin = np.array(target.MechanicalObject.position.value[0], copy=True)
+
     with target.MechanicalObject.position.writeableArray() as w:
-        w[0] = LinearRamp([0, 0, 0, 0, 0, 0, 1], end, factor)
+        end = begin[:3] + np.asarray(frames["position"])
+        end = np.hstack((end, np.asarray(frames["rotation"])))
+        w[0] = LinearRamp(begin, end, factor)
 
 
 class AnimationController(Sofa.Core.Controller):
-    def __init__(self, target, goals, *args, **kwargs):
+    def __init__(self, target, goals, manager, *args, **kwargs):
         super().__init__(self, *args, **kwargs)
         self.name = "AnimationController"
         self.done = False
         self.target = target
         self.goals = goals
+        self.manager = manager
         self.index = 0
         self.lastKey = ""
+
+        self.currentSpotAnim = None
+        self.currentTargetAnim = None
         self.setup()
 
     def setup(self):
@@ -59,13 +69,6 @@ class AnimationController(Sofa.Core.Controller):
                 position = [x, 0, 0]
                 rotation = [0, 0, 0, 1]
                 self.animationsTarget[key] = {"position" : position, "rotation" : rotation}
-            elif key == "sit":
-                y = (anim["frames"][0]["fl"][1] + anim["frames"][0]["hl"][1])/2
-                print(y)
-                position = [0, y, 0]
-                rotation = [0, 0, 0, 1]
-                self.animationsTarget[key] = {"position" : position, "rotation" : rotation}
-
     
     def onKeypressedEvent(self, event):
         key, value = list(self.animations.items())[self.index]
@@ -77,11 +80,19 @@ class AnimationController(Sofa.Core.Controller):
             else:
                 dt.append(value["t"])
         print(f"{key} animation")
-        
-        animation.animate(spotAnimation, {"target" : self.goals, "frames" : frames, "dt" : dt}, duration=frames["duration"], mode="pingpong")
+
+
+        if self.currentSpotAnim:
+            self.manager.removeAnimation(self.currentSpotAnim)
+        animation.animate(spotAnimation, {"target" : self.goals, "frames" : frames, "dt" : dt}, duration=frames["duration"], mode="loop")
+        self.currentSpotAnim = self.manager.animations[-1] 
+
         if key in self.animationsTarget and self.lastKey != key:
-            #print("Test :", frames["duration"], self.animationsTarget[key])
-            animation.animate(targetAnimation, {"target" : self.target, "frames" : self.animationsTarget[key]}, duration=frames["duration"], mode="pingpong")
+            if self.currentTargetAnim:
+                self.manager.removeAnimation(self.currentTargetAnim)
+            animation.animate(targetAnimation, {"target" : self.target, "frames" : self.animationsTarget[key]}, duration=frames["duration"], mode="loop")
+            self.currentTargetAnim = self.manager.animations[-1]
+            
             self.lastKey = key
 
         if self.index < len(self.animations.values()) - 1:
@@ -106,7 +117,7 @@ def tmpAnimation(target, factor):
         w[0][3:7] = [0, np.sin((factor - 0.5) * pi/16), 0, np.cos((factor - 0.5) * pi/16)]
         #w[0][:3] = [np.cos(factor) - 0.5, 0, 0]
 
-def setupRobot(rootnode, simulation):
+def setupRobot(rootnode, simulation, manager):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
     robot = simulation.SpotRobot.Robot
     robot.Joints.universe.activated = False
@@ -128,8 +139,8 @@ def setupRobot(rootnode, simulation):
     addRootJointEffector(robot.Joints.root_joint, target)
     removeConstraint(robot, constraints)
 
-    rootnode.addObject(AnimationController(target, goals))
-    #animation.animate(targetAnimation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
+    rootnode.addObject(AnimationController(target, goals, manager))
+    #animation.animate(tmpAnimation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
 
     addCloud(rootnode, robot)
     robot.dofs.position.value = tmp
@@ -167,14 +178,25 @@ def addJointActuator(robot, jointNodes):
 def addSliddingActuator(node):
     # Sliding Actuator
     node.addObject('UniformMass', template='Rigid3', totalMass=16)
-    node.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
-                        fixedDirections=[0, 1, 1, 1, 0, 1])
-    node.addObject('SlidingActuator', name="Slide", template='Rigid3', indices=0,
+    node.addObject('SlidingActuator', name="SlideX", template='Rigid3', indices=0,
                         direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.01,
                         maxForce=1000, minForce=-1000)
-    node.addObject('SlidingActuator', name="Rotate", template='Rigid3', indices=0,
-                        direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.01,
+    node.addObject('SlidingActuator', name="SlideY", template='Rigid3', indices=0,
+                        direction=[0, 1, 0, 0, 0, 0], maxDispVariation=0.01,
                         maxForce=1000, minForce=-1000)
+    node.addObject('SlidingActuator', name="SlideZ", template='Rigid3', indices=0,
+                        direction=[0, 0, 1, 0, 0, 0], maxDispVariation=0.01,
+                        maxForce=1000, minForce=-1000)
+    
+    node.addObject('SlidingActuator', name="RotateX", template='Rigid3', indices=0,
+                        direction=[0, 0, 0, 1, 0, 0], maxDispVariation=0.001,
+                        maxForce=100, minForce=-100)
+    node.addObject('SlidingActuator', name="RotateY", template='Rigid3', indices=0,
+                        direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.001,
+                        maxForce=100, minForce=-100)
+    node.addObject('SlidingActuator', name="RotateZ", template='Rigid3', indices=0,
+                        direction=[0, 0, 0, 0, 0, 1], maxDispVariation=0.001,
+                        maxForce=100, minForce=-100)
 
 def addEffector(robot, goals):
     # Effector: Jambes
@@ -195,7 +217,7 @@ def addRootJointEffector(robot, target):
     effector.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0 ,0, 1],
                        showObject=True, drawMode=2, showObjectScale=0.1)
     effector.addObject('PositionEffector', template="Rigid3", indices=0, effectorGoal=[0, 0, 0, 0, 0, 0, 1],
-                       weight=2, useDirections=[1, 0, 0, 0, 1, 0])
+                       weight=5, useDirections=[1, 1, 1, 0, 1, 0])
     effector.addObject('RigidMapping')
     effector.PositionEffector.effectorGoal.setParent(target.MechanicalObject.position)
 
