@@ -84,16 +84,19 @@ class AnimationController(Sofa.Core.Controller):
 
         if self.currentSpotAnim:
             self.manager.removeAnimation(self.currentSpotAnim)
+
         animation.animate(spotAnimation, {"target" : self.goals, "frames" : frames, "dt" : dt}, duration=frames["duration"], mode="loop")
         self.currentSpotAnim = self.manager.animations[-1] 
 
         if key in self.animationsTarget and self.lastKey != key:
+            self.lastKey = key
             if self.currentTargetAnim:
                 self.manager.removeAnimation(self.currentTargetAnim)
+                animation.animate(targetAnimation, {"target" : self.target, "frames" : self.animationsTarget[key]}, duration=1)
+
             animation.animate(targetAnimation, {"target" : self.target, "frames" : self.animationsTarget[key]}, duration=frames["duration"], mode="loop")
             self.currentTargetAnim = self.manager.animations[-1]
             
-            self.lastKey = key
 
         if self.index < len(self.animations.values()) - 1:
             self.index += 1
