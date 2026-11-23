@@ -9,32 +9,56 @@ import numpy as np
 import json
 
 
-ANIMATION = "data/animation/turn.json"
-OUTPUT = "Spot/data/animation/reverse/turn.json"
+ANIMATION = "data/animation/frames/meshTurn.json"
+OUTPUT = "Spot/data/animation/reverse/test.json"
 
-POSE_MIN_TIME = 0.2
-POSE_MAX_TIME = 5.0
-POSE_STABLE_STEPS = 10
+POSE_WAIT_STEPS = 1
+
+IDENTITY = [0, 0, 0, 0, 0, 0, 1]
 
 
-def createScene(rootnode):
-    settings, modelling, simulation = addHeader(rootnode, inverse=False, withCollision=True)
-    rootnode.ConstraintSolver.epsilon = 1e-3
-    rootnode.addObject("InteractiveCamera", name="camera", computeZClip=False, zFar=10000)
-    rootnode.addObject("PointCloudRenderer", name="renderer", camera=rootnode.camera.linkpath)
-    rootnode.addObject(animation.AnimationManager(rootnode))
-    rootnode.gravity = [0, 0, 0]
+def quat_mul(a, b):
+    """Produit de quaternions au format (x, y, z, w)."""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    ax, ay, az, aw = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    bx, by, bz, bw = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
+    return np.stack([
+        aw*bx + ax*bw + ay*bz - az*by,
+        aw*by - ax*bz + ay*bw + az*bx,
+        aw*bz + ax*by - ay*bx + az*bw,
+        aw*bw - ax*bx - ay*by - az*bz,
+    ], axis=-1)
 
-    addSolvers(simulation, rayleighStiffness=0)
-    #simulation.solver.printLog = True
-    #simulation.EulerImplicitIntegrationScheme.printLog = True
-    #simulation.GenericConstraintCorrection.printLog = True
-    #rootnode.ConstraintSolver.printLog = True
-    rootnode.VisualStyle.displayFlags = ["showVisual"]
 
-    setupRobot(rootnode, simulation)
+def quat_conj(q):
+    q = np.asarray(q, dtype=float)
+    return np.array([-q[0], -q[1], -q[2], q[3]])
 
-    return
+
+def quat_rotate(q, v):
+    """Tourne le vecteur v par le quaternion q."""
+    q = np.asarray(q, dtype=float)
+    v = np.asarray(v, dtype=float)
+    u, w = q[:3], q[3]
+    t = 2.0 * np.cross(u, v)
+    return v + w * t + np.cross(u, t)
+
+
+def quat_slerp(a, b, s):
+    """Interpolation sphérique entre deux quaternions (plus court chemin)."""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    d = np.dot(a, b)
+    if d < 0.0:
+        b, d = -b, -d
+    if d > 0.9995:
+        q = a + s * (b - a)
+    else:
+        th = np.arccos(d)
+        q = (np.sin((1.0 - s) * th) * a + np.sin(s * th) * b) / np.sin(th)
+    return q / np.linalg.norm(q)
+
 
 def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     """Linear interpolation between two values
@@ -47,6 +71,24 @@ def LinearRamp(beginValue=0.0, endValue=1.0, scale=0.5):
     end = np.asarray(endValue, dtype=float)
     return (end - begin) * scale + begin
 
+
+def createScene(rootnode):
+    settings, modelling, simulation = addHeader(rootnode, inverse=False, withCollision=True)
+    rootnode.ConstraintSolver.epsilon = 1e-3
+    rootnode.addObject("InteractiveCamera", name="camera", computeZClip=False, zFar=10000)
+    rootnode.addObject("PointCloudRenderer", name="renderer", camera=rootnode.camera.linkpath)
+    rootnode.addObject(animation.AnimationManager(rootnode))
+    rootnode.gravity = [0, 0, 0]
+
+    addSolvers(simulation, rayleighStiffness=0)
+    rootnode.VisualStyle.displayFlags = ["showVisual"]
+
+    setupRobot(rootnode, simulation)
+
+    return
+
+recording = {"factor": None}
+
 def anim(constraint, target, root, data, dt, effectors, factor):
     i = 0
     while i < len(dt) - 1 and dt[i + 1] <= factor:
@@ -55,106 +97,124 @@ def anim(constraint, target, root, data, dt, effectors, factor):
     span = (dt[j] if j > i else 1.0) - dt[i]
     local = (factor - dt[i]) / span if span > 0 else 0.0
 
-    rootBegin = data["frames"][i]["root"]
-    rootEnd = data["frames"][j]["root"]
+    frameBegin = data["frames"][i]
+    frameEnd = data["frames"][j]
+
     with root.position.writeableArray() as w:
-        if "root" in data["frames"][i]:
-            w[0] = LinearRamp(rootBegin, rootEnd, local)
+        if "root" in frameBegin and "root" in frameEnd:
+            rootBegin = frameBegin["root"]
+            rootEnd = frameEnd["root"]
+            w[0][:3] = LinearRamp(rootBegin[:3], rootEnd[:3], local)
+            w[0][2] = 0
+            w[0][3:] = quat_slerp(rootBegin[3:], rootEnd[3:], local)
         else:
-            w[0] = [0, 0, 0, 0, 0, 0, 1]
+            w[0] = IDENTITY
 
-    for constraint in constraint:
-        begin = data["frames"][i]["joints"][constraint.name.value]
-        end = data["frames"][j]["joints"][constraint.name.value]
-        constraint.value = LinearRamp(begin, end, local)
+    for c in constraint:
+        name = c.name.value
+        begin = frameBegin["joints"].get(name, 0.0)
+        end = frameEnd["joints"].get(name, 0.0)
+        c.value = LinearRamp(begin, end, local)
 
-    save(effectors, target, data, dt, factor)
+    recording["factor"] = factor
 
 
 def animDone(constraint, target, root, data, dt, effectors, factor):
     anim(constraint, target, root, data, dt, effectors, factor)
-    frames = []
-    tmp = framePositions[1]["t"]
-    for f in framePositions:
-        f["t"] -= tmp
-        frames.append(f)
-
-    writeOutput(frames[1:], data)
 
 
 def writeOutput(frames, data):
-    js = {"duration" : data["duration"], "frames" : frames}
+    js = {"duration": data["duration"], "frames": frames}
     with open(OUTPUT, "w", encoding="UTF-8") as f:
         json.dump(js, f, indent=2)
     print(f"{len(frames)} frames sauvegardées")
 
 
-def effectorsEntry(effector, target, t):
+def hasRootFrames(data):
+    return len(data["frames"]) > 0 and all("root" in f for f in data["frames"])
+
+
+def effectorsEntry(effectors, target, t, hasRoot=True):
     entry = {"t": t}
-    for name, mo in effector.items():
-        entry[name[:2]] = np.array(mo.position.value[0]).tolist()   # [x, y, z]
-    entry["root"] = target.position.value[0].tolist()
+    if hasRoot:
+        rootPose = np.array(target.position.value[0], dtype=float)
+        entry["root"] = rootPose.tolist()
+    else:
+        rootPose = np.array(IDENTITY, dtype=float)
+    p_root, q_root = rootPose[:3], rootPose[3:]
+
+    for name, mo in effectors.items():
+        p = np.array(mo.position.value[0], dtype=float)
+        p = quat_rotate(quat_conj(q_root), p - p_root)
+        entry[name[:2]] = p.tolist()
     return entry
 
-framePositions = []
-nextKey = 0
-def save(effector, target, data, dt, factor):
-    global nextKey
-    while nextKey < len(dt) and factor >= dt[nextKey]:
-        framePositions.append(effectorsEntry(effector, target, data["frames"][nextKey]["t"]))
-        nextKey += 1
+
+class FrameRecorder(Sofa.Core.Controller):
+    """Enregistre les positions en FIN de pas, une fois le solveur passé."""
+
+    def __init__(self, data, dt, effectors, target, *args, **kwargs):
+        Sofa.Core.Controller.__init__(self, *args, **kwargs)
+        self.data = data
+        self.dt = dt
+        self.effectors = effectors
+        self.target = target
+        self.hasRoot = hasRootFrames(data)
+        self.frames = []
+        self.nextKey = 0
+        self.done = False
+
+    def onAnimateEndEvent(self, event):
+        factor = recording["factor"]
+        if self.done or factor is None:
+            return
+
+        while self.nextKey < len(self.dt) and factor >= self.dt[self.nextKey] - 1e-9:
+            t = self.data["frames"][self.nextKey]["t"]
+            self.frames.append(effectorsEntry(self.effectors, self.target, t, self.hasRoot))
+            self.nextKey += 1
+
+        if self.nextKey >= len(self.dt):
+            self.done = True
+            writeOutput(self.frames, self.data)
 
 
 class PoseRecorder(Sofa.Core.Controller):
-    def __init__(self, rootnode, data, goalsEffectors, targetEffector, *args, **kwargs):
+    """Animation d'une seule frame : applique la pose, laisse POSE_WAIT_STEPS pas puis enregistre."""
+
+    def __init__(self, data, effectors, target, freeFlyer, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
-        self.rootnode = rootnode
-        self.goalsEffectors = goalsEffectors
-        self.targetEffector = targetEffector
-        self.previous = None
-        self.stableCount = 0
-        self.startTime = None
         self.data = data
+        self.effectors = effectors
+        self.target = target
+        self.freeFlyer = freeFlyer
+        self.hasRoot = hasRootFrames(data)
+        self.steps = 0
+        self.started = False
         self.done = False
 
-    def currentPositions(self):
-        return np.array([np.array(mo.position.value[0]) for mo in self.goalsEffectors.values()])
+    def onAnimateBeginEvent(self, event):
+        if self.started:
+            return
+        self.started = True
+        with self.freeFlyer.position.writeableArray() as w:
+            if self.hasRoot:
+                w[0] = self.data["frames"][0]["root"]
+                w[0][2] = 0
+            else:
+                w[0] = IDENTITY
 
     def onAnimateEndEvent(self, event):
         if self.done:
             return
+        self.steps += 1
+        if self.steps <= POSE_WAIT_STEPS:
+            return
+        self.done = True
+        entry = effectorsEntry(self.effectors, self.target,
+                               self.data["frames"][0]["t"], self.hasRoot)
+        writeOutput([entry], self.data)
 
-        time = self.rootnode.time.value
-        if self.startTime is None:
-            self.startTime = time
-        elapsed = time - self.startTime
-
-        current = self.currentPositions()
-        if elapsed >= POSE_MIN_TIME and self.previous is not None \
-                and np.max(np.abs(current - self.previous)) < 1e-6:
-            self.stableCount += 1
-        else:
-            self.stableCount = 0
-        self.previous = current
-
-        stable = self.stableCount >= POSE_STABLE_STEPS
-        if stable or elapsed >= POSE_MAX_TIME:
-            self.done = True
-            if not stable:
-                print(f"Pose non stabilisée après {POSE_MAX_TIME}s, enregistrement quand même")
-            writeOutput([effectorsEntry(self.goalsEffectors, self.data["frames"][0]["t"])], self.data)
-
-
-def quat_mul(a, b):
-    """Produit de quaternions au format (x, y, z, w)."""
-    ax, ay, az, aw = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
-    bx, by, bz, bw = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
-    return np.stack([
-        aw*bx + ax*bw + ay*bz - az*by,
-        aw*by - ax*bz + ay*bw + az*bx,
-        aw*bz + ax*by - ay*bx + az*bw,
-        aw*bw - ax*bx - ay*by - az*bz,
-    ], axis=-1)
 
 def read():
     with open(ANIMATION, "r", encoding="UTF-8") as file:
@@ -165,7 +225,7 @@ def read():
         frameDuration = js["FrameDuration"]
         frames = np.array(js["Frames"])
         root_pos = frames[:, :7]
-        root_pos[:, :3] -= root_pos[0, :3] 
+        root_pos[:, :3] -= root_pos[0, :3]
 
         a = np.radians(-90)
         q_R = np.array([np.sin(a/2), 0.0, 0.0, np.cos(a/2)])
@@ -173,12 +233,13 @@ def read():
         root_pos[:, 3:] = quat_mul(root_pos[:, 3:], q_R)
 
         joints = frames[:, 7:]
-        nameJoints = ["fr.hx", "fr.hy", "fr.kn", "fl.hx", "fl.hy", "fl.kn", "hr.hx", "hr.hy", "hr.kn", "hl.hx", "hl.hy", "hl.kn"]
+        nameJoints = ["fr.hx", "fr.hy", "fr.kn", "fl.hx", "fl.hy", "fl.kn",
+                      "hr.hx", "hr.hy", "hr.kn", "hl.hx", "hl.hy", "hl.kn"]
 
         data["duration"] = len(frames) * frameDuration
         data["frames"] = []
         for i in range(len(frames)):
-            frame = {"t" : i * frameDuration}
+            frame = {"t": i * frameDuration}
             frame["root"] = root_pos[i, :].tolist()
             frame["joints"] = {nameJoints[j]: joints[i, j] for j in range(len(nameJoints))}
             data["frames"].append(frame)
@@ -187,16 +248,16 @@ def read():
 
     for value in data["frames"]:
         if data["duration"] != 0:
-            dt.append(value["t"]/data["duration"])
+            dt.append(value["t"] / data["duration"])
         else:
             dt.append(value["t"])
     return data, dt
+
 
 def setupRobot(rootnode, simulation):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
     robot = simulation.SpotRobot.Robot
     robot.Joints.universe.activated = False
-
 
     jointNodes = [n for n in robot.Joints.children
                   if n.name.value not in ("universe", "root_joint")]
@@ -207,24 +268,30 @@ def setupRobot(rootnode, simulation):
     goalsEffectors = addEffector(robot)
     targetEffector = addRootJointEffector(robot.Joints.root_joint)
     simulation.SpotRobot.RootJoint.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
-                        fixedDirections=[0, 0, 1, 0, 0, 0])
-    if data["duration"] == 0:
-        rootnode.addObject(PoseRecorder(rootnode, data, goalsEffectors, targetEffector, name="PoseRecorder"))
+                                             fixedDirections=[0, 0, 1, 0, 0, 0])
+    freeFlyer = simulation.SpotRobot.RootJoint.getObject("Free-Flyer")
+    if len(data["frames"]) == 1 or data["duration"] == 0:
+        rootnode.addObject(PoseRecorder(data, goalsEffectors, targetEffector.MechanicalObject,
+                                        freeFlyer, name="PoseRecorder"))
     else:
-        animation.animate(anim, {"constraint": constraints, "target": targetEffector.MechanicalObject , "root": simulation.SpotRobot.RootJoint.getObject("Free-Flyer"), "data": data, "dt": dt, "effectors": goalsEffectors},
+        rootnode.addObject(FrameRecorder(data, dt, goalsEffectors, targetEffector.MechanicalObject,
+                                         name="FrameRecorder"))
+        animation.animate(anim, {"constraint": constraints,
+                                 "target": targetEffector.MechanicalObject,
+                                 "root": freeFlyer,
+                                 "data": data, "dt": dt, "effectors": goalsEffectors},
                           duration=data["duration"], onDone=animDone)
 
 
 def addEffector(robot):
-    # Effector: Jambes
-    i = 0
+    # Effector: Jambes (un point Vec3 au bout de chaque tibia)
     mechanicals = {}
     for node in robot.Joints.children:
         if node.name.value.endswith("kn"):
             effector = node.addChild("Effector")
-            mecha = effector.addObject("MechanicalObject", name="MechanicalObject", position=[0, 0, -0.35], showObject=True, showObjectScale=0.1)
+            mecha = effector.addObject("MechanicalObject", name="MechanicalObject",
+                                       position=[0, 0, -0.35], showObject=True, showObjectScale=0.1)
             effector.addObject("RigidMapping")
-            i += 1
             mechanicals[node.name.value] = mecha
     return mechanicals
 
@@ -232,7 +299,7 @@ def addEffector(robot):
 def addRootJointEffector(robot):
     # Effector: root_joint
     effector = robot.addChild('Effector')
-    effector.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0 ,0, 1],
+    effector.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0, 0, 1],
                        showObject=True, drawMode=2, showObjectScale=0.1)
     effector.addObject('RigidMapping')
     return effector
@@ -242,7 +309,7 @@ def addJointConstraint(robot, data, jointNodes, positions):
     constraints = []
     for i in range(len(positions)):
         jointName = jointNodes[i].name.value
-        value = 0 if jointName not in  data["frames"][0]["joints"] else data["frames"][0]["joints"][jointName]
+        value = data["frames"][0]["joints"].get(jointName, 0)
         positions[i] = value
         joint = robot.addObject('JointConstraint', template='Vec1', name=jointName, index=i,
                                 valueType="displacement",

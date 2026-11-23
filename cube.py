@@ -7,7 +7,7 @@ import numpy as np
 
 def targetAnimation(target, factor):
     with target.position.writeableArray() as w:
-        w[0][3:7] = [0, np.sin((factor - 5) * pi/2), 0, np.cos((factor - 5) * pi/2)]
+        w[0][3:7] = [0, 0, np.sin((factor - 5) * pi), np.cos((factor - 5) * pi)]
         w[0][:3] = [np.cos(factor) - 0.5, 0, 0]
 
 def addCube(simulation):
