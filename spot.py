@@ -63,14 +63,12 @@ def targetAnimation(target, frames, dt, state, factor):
     begin = state["begin"]
 
     if len(frames) == 1:
-        # Déplacement unique réparti sur toute la durée de l'animation
         deplacement = np.asarray(frames[0], dtype=float)
         relPosition = deplacement[:3] * factor
         relRotation = Slerp([0, 1], R.from_quat([[0, 0, 0, 1], deplacement[3:]]))(factor)
     else:
         i, j, local = findKeyframes(dt, factor)
         if j < i:
-            # Dernier segment : on garde la dernière pose, la boucle suivante repartira d'ici
             j, local = i, 0.0
         a = np.asarray(frames[i], dtype=float)
         b = np.asarray(frames[j], dtype=float)
@@ -170,13 +168,7 @@ class AnimationController(Sofa.Core.Controller):
         self.done = True
         self.onKeypressedEvent("")
 
-
-def tmpAnimation(target, factor):
-    with target.position.writeableArray() as w:
-        w[0][3:7] = [0, np.sin((factor - 0.5) * pi/16), 0, np.cos((factor - 0.5) * pi/16)]
-        #w[0][:3] = [np.cos(factor) - 0.5, 0, 0]
-
-def setupRobot(rootnode, simulation, manager):
+def setupRobot(rootnode, simulation, manager, position=[0, 0, 0, 0, 0, 0, 1]):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
     robot = simulation.SpotRobot.Robot
     robot.Joints.universe.activated = False
@@ -190,7 +182,7 @@ def setupRobot(rootnode, simulation, manager):
     addJointActuator(robot, jointNodes)
     addSliddingActuator(simulation.SpotRobot.RootJoint)
 
-    target = addTarget(rootnode)
+    target = addTarget(rootnode, position)
     goals = addGoals(target)
 
     addEffector(robot, goals)
@@ -199,12 +191,17 @@ def setupRobot(rootnode, simulation, manager):
 
     robotRoot = simulation.SpotRobot.RootJoint.getMechanicalState()
     rootnode.addObject(AnimationController(target, goals, manager, robotRoot))
-    #animation.animate(tmpAnimation, {"target" : target.MechanicalObject}, mode="pingpong", duration=2)
 
     addCloud(rootnode, robot)
     robot.dofs.position.value = tmp
 
     disableVisual(robot)
+
+
+    with simulation.SpotRobot.RootJoint.getObject("Free-Flyer").position.writeableArray() as w:
+        w[0][:] = position
+    with simulation.SpotRobot.RootJoint.getObject("Free-Flyer").rest_position.writeableArray() as w:
+        w[0][:] = position
 
 def disableVisual(robot):
     # Masquer les meshes du robot
@@ -231,7 +228,7 @@ def addJointActuator(robot, jointNodes):
         min = urdf.joint_map[jointName].limit.lower
         max = urdf.joint_map[jointName].limit.upper
         robot.addObject('JointActuator', template='Vec1', name='joint' + str(i), index=i,
-                            maxAngle=max, minAngle=min, initAngle=(min+max)/2,
+                            maxAngle=max, minAngle=min, initAngle=0,
                             maxAngleVariation=0.05)
 
 def addSliddingActuator(node):

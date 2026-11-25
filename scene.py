@@ -2,6 +2,8 @@ from modules.header import addHeader, addSolvers
 from spot import setupRobot
 from cube import setupCube
 from splib3 import animation
+from scipy.spatial.transform import Rotation as R, Slerp
+
 
 
 def createScene(rootnode):
@@ -19,7 +21,7 @@ def createScene(rootnode):
     #rootnode.ConstraintSolver.printLog = True
     rootnode.VisualStyle.displayFlags = ["showVisual"]
 
-    setupRobot(rootnode, simulation, manager)
+    setupRobot(rootnode, simulation, manager,  [0, 0, 0] + R.from_euler("xyz", [0, 0, 180], degrees=True).as_quat().tolist())
     #setupCube(rootnode, simulation)
 
     return
