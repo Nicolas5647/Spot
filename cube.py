@@ -1,13 +1,14 @@
 from modules.header import addHeader, addSolvers
 from splib3 import animation
-from spot import addSliddingActuator, addTarget, addRootJointEffector
+from spot import addSliddingActuator, addTarget, addRootJointEffector, printTree
 from math import pi
 import numpy as np
+from scipy.spatial.transform import Rotation as R, Slerp
 
 
 def targetAnimation(target, factor):
     with target.position.writeableArray() as w:
-        w[0][3:7] = [0, 0, np.sin((factor - 5) * pi), np.cos((factor - 5) * pi)]
+        w[0][3:7] = R.from_euler('xyz', [360 * factor, 360 * factor, 360 * factor], degrees=True).as_quat()
         w[0][:3] = [np.cos(factor) - 0.5, 0, 0]
 
 def addCube(simulation):

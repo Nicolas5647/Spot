@@ -4,18 +4,16 @@ from splib3 import animation
 from math import pi
 import Sofa
 import Sofa.Core
-import Sofa.ImGui as MyGui
+try:
+    import Sofa.ImGui as MyGui
+except ImportError:
+    MyGui = None
 import numpy as np
 import json
 
 
 ANIMATION = "data/animation/frames/meshTurn.json"
-OUTPUT = "Spot/data/animation/reverse/test.json"
-
-POSE_WAIT_STEPS = 1
-
-IDENTITY = [0, 0, 0, 0, 0, 0, 1]
-
+OUTPUT = "Spot/data/animation/reverse/turn.json"
 
 def quat_mul(a, b):
     """Produit de quaternions au format (x, y, z, w)."""
@@ -108,7 +106,7 @@ def anim(constraint, target, root, data, dt, effectors, factor):
             w[0][2] = 0
             w[0][3:] = quat_slerp(rootBegin[3:], rootEnd[3:], local)
         else:
-            w[0] = IDENTITY
+            w[0] = [0, 0, 0, 0, 0, 0, 1]
 
     for c in constraint:
         name = c.name.value
@@ -140,7 +138,7 @@ def effectorsEntry(effectors, target, t, hasRoot=True):
         rootPose = np.array(target.position.value[0], dtype=float)
         entry["root"] = rootPose.tolist()
     else:
-        rootPose = np.array(IDENTITY, dtype=float)
+        rootPose = np.array([0, 0, 0, 0, 0, 0, 1], dtype=float)
     p_root, q_root = rootPose[:3], rootPose[3:]
 
     for name, mo in effectors.items():
@@ -180,7 +178,7 @@ class FrameRecorder(Sofa.Core.Controller):
 
 
 class PoseRecorder(Sofa.Core.Controller):
-    """Animation d'une seule frame : applique la pose, laisse POSE_WAIT_STEPS pas puis enregistre."""
+    """Animation d'une seule frame : applique la pose, laisse 1 pas puis enregistre."""
 
     def __init__(self, data, effectors, target, freeFlyer, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
@@ -202,13 +200,13 @@ class PoseRecorder(Sofa.Core.Controller):
                 w[0] = self.data["frames"][0]["root"]
                 w[0][2] = 0
             else:
-                w[0] = IDENTITY
+                w[0] = [0, 0, 0, 0, 0, 0, 1]
 
     def onAnimateEndEvent(self, event):
         if self.done:
             return
         self.steps += 1
-        if self.steps <= POSE_WAIT_STEPS:
+        if self.steps <= 1:
             return
         self.done = True
         entry = effectorsEntry(self.effectors, self.target,
@@ -315,5 +313,6 @@ def addJointConstraint(robot, data, jointNodes, positions):
                                 valueType="displacement",
                                 value=value)
         constraints.append(joint)
-        MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
+        if MyGui is not None:
+            MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
     return constraints

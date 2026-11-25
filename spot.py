@@ -6,7 +6,10 @@ from modules.cloud import Cloud
 from modules.miniskinning import SplatAssignment
 from splib3 import animation
 import Sofa
-import Sofa.ImGui as MyGui
+try:
+    import Sofa.ImGui as MyGui
+except:
+    MyGui = None
 import numpy as np
 from scipy.spatial.transform import Rotation as R, Slerp
 import json
@@ -177,7 +180,6 @@ def setupRobot(rootnode, simulation, manager):
     simulation.addChild(SpotRobot("data/model.urdf", freeFlyer=True))
     robot = simulation.SpotRobot.Robot
     robot.Joints.universe.activated = False
-
     jointNodes = [n for n in robot.Joints.children
                   if n.name.value not in ("universe", "root_joint")]
     positions = np.copy(robot.getMechanicalState().position.value)
@@ -226,8 +228,8 @@ def addJointActuator(robot, jointNodes):
     urdf = URDF.load('data/model.urdf')
     for i in range(len(robot.dofs.position)):
         jointName = jointNodes[i].name.value
-        min = -pi #urdf.joint_map[jointName].limit.lower
-        max = pi #urdf.joint_map[jointName].limit.upper
+        min = urdf.joint_map[jointName].limit.lower
+        max = urdf.joint_map[jointName].limit.upper
         robot.addObject('JointActuator', template='Vec1', name='joint' + str(i), index=i,
                             maxAngle=max, minAngle=min, initAngle=(min+max)/2,
                             maxAngleVariation=0.05)
@@ -245,13 +247,13 @@ def addSliddingActuator(node):
                         maxForce=10000, minForce=-10000)
 
     node.addObject('SlidingActuator', name="RotateX", template='Rigid3', indices=0,
-                        direction=[0, 0, 0, 1, 0, 0], maxDispVariation=0.01,
+                        direction=[0, 0, 0, 1, 0, 0], maxDispVariation=0.1,
                         maxForce=1000, minForce=-1000)
     node.addObject('SlidingActuator', name="RotateY", template='Rigid3', indices=0,
-                        direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.01,
+                        direction=[0, 0, 0, 0, 1, 0], maxDispVariation=0.1,
                         maxForce=1000, minForce=-1000)
     node.addObject('SlidingActuator', name="RotateZ", template='Rigid3', indices=0,
-                        direction=[0, 0, 0, 0, 0, 1], maxDispVariation=0.01,
+                        direction=[0, 0, 0, 0, 0, 1], maxDispVariation=0.1,
                         maxForce=1000, minForce=-1000)
 
 def addEffector(robot, goals):
@@ -299,12 +301,12 @@ def addGoals(rootnode):
                     output=g.dofs.getLinkPath(), indices=[i], handleTopologyChange=False)
     return goals
 
-def addTarget(rootnode):
+def addTarget(rootnode, position= [0, 0, 0, 0, 0, 0, 1]):
     # Target pour le corps
     target = rootnode.addChild('Target')
     target.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
     target.addObject('CGLinearSolver', tolerance=1e-5, iterations=20, threshold=1e-5)
-    target.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0, 0, 1], showObject=True, showObjectScale=0.15)
+    target.addObject('MechanicalObject', template="Rigid3", position=position, showObject=True, showObjectScale=0.15)
     target.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
                  fixedDirections=[0, 0, 1, 0, 0, 0])
     target.addObject('UniformMass', template='Rigid3', totalMass=0.1)
@@ -321,7 +323,8 @@ def addJointConstraint(robot, jointNodes, positions):
                                 valueType="displacement",
                                 value=value)
         constraints.append(joint)
-        MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
+        if MyGui is not None:
+            MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
     return constraints
 
 def removeConstraint(robot, constraints):

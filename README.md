@@ -24,7 +24,7 @@ Simulation of the Spot robot using the SoftRobots and Sofa.RigidBodyDynamics plu
     - SofaPython3:   
         `git clone git@github.com:sofa-framework/SofaPython3.git`
     - SofaGLFW (on the robotics branch):   
-        `git clone git@github.com:SofaComplianceRobotics/SofaGLFW.git`  
+        `git clone git@github.com:sofa-framework/SofaGLFW.git`  
         `git checkout robotics`
     - Sofa.RigidBodyDynamics:     
         `git clone git@github.com:olivier-roussel/Sofa.RigidBodyDynamics.git`

@@ -39,7 +39,10 @@ class SpotRobot(Sofa.Prefab):
 def createScene(rootnode):
 
     from modules.header import addHeader, addSolvers
-    import Sofa.ImGui as MyGui
+    try:
+        import Sofa.ImGui as MyGui 
+    except ImportError:
+        MyGui = None
     from math import pi
     from modules.robotconfigurations import spot_ctrl_joint_infos as spotInitConfiguration
 
@@ -67,6 +70,7 @@ def createScene(rootnode):
                                 valueType="angle", 
                                 value=value
                                 )
-        MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
+        if MyGui is not None:
+            MyGui.MyRobotWindow.addSetting(jointName, joint.value, -pi, pi)
 
     return
