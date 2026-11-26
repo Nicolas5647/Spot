@@ -21,7 +21,7 @@ def createScene(rootnode):
     #rootnode.ConstraintSolver.printLog = True
     rootnode.VisualStyle.displayFlags = ["showVisual"]
 
-    setupRobot(rootnode, simulation, manager,  [0, 0, 0] + R.from_euler("xyz", [0, 0, 180], degrees=True).as_quat().tolist())
+    setupRobot(rootnode, simulation, manager)
     #setupCube(rootnode, simulation)
 
     return

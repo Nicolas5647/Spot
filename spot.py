@@ -94,12 +94,11 @@ def relativeRootFrames(anim):
 
 
 class AnimationController(Sofa.Core.Controller):
-    def __init__(self, target, goals, manager, robotRoot, *args, **kwargs):
+    def __init__(self, target, goals, manager, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.name = "AnimationController"
         self.done = False
         self.target = target
-        self.robotRoot = robotRoot
         self.goals = goals
         self.manager = manager
         self.index = 0
@@ -189,14 +188,12 @@ def setupRobot(rootnode, simulation, manager, position=[0, 0, 0, 0, 0, 0, 1]):
     addRootJointEffector(robot.Joints.root_joint, target)
     removeConstraint(robot, constraints)
 
-    robotRoot = simulation.SpotRobot.RootJoint.getMechanicalState()
-    rootnode.addObject(AnimationController(target, goals, manager, robotRoot))
+    rootnode.addObject(AnimationController(target, goals, manager))
 
     addCloud(rootnode, robot)
     robot.dofs.position.value = tmp
 
     disableVisual(robot)
-
 
     with simulation.SpotRobot.RootJoint.getObject("Free-Flyer").position.writeableArray() as w:
         w[0][:] = position
@@ -234,13 +231,13 @@ def addJointActuator(robot, jointNodes):
 def addSliddingActuator(node):
     node.addObject('UniformMass', template='Rigid3', totalMass=16)
     node.addObject('SlidingActuator', name="SlideX", template='Rigid3', indices=0,
-                        direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.01,
+                        direction=[1, 0, 0, 0, 0, 0], maxDispVariation=0.1,
                         maxForce=10000, minForce=-10000)
     node.addObject('SlidingActuator', name="SlideY", template='Rigid3', indices=0,
-                        direction=[0, 1, 0, 0, 0, 0], maxDispVariation=0.01,
+                        direction=[0, 1, 0, 0, 0, 0], maxDispVariation=0.1,
                         maxForce=10000, minForce=-10000)
     node.addObject('SlidingActuator', name="SlideZ", template='Rigid3', indices=0,
-                        direction=[0, 0, 1, 0, 0, 0], maxDispVariation=0.01,
+                        direction=[0, 0, 1, 0, 0, 0], maxDispVariation=0.1,
                         maxForce=10000, minForce=-10000)
 
     node.addObject('SlidingActuator', name="RotateX", template='Rigid3', indices=0,
@@ -269,10 +266,9 @@ def addRootJointEffector(robot, target):
     effector = robot.addChild('Effector')
     effector.addObject('MechanicalObject', template="Rigid3", position=[0, 0, 0, 0, 0 ,0, 1],
                        showObject=True, drawMode=2, showObjectScale=0.1)
-    effector.addObject('PositionEffector', template="Rigid3", indices=0, effectorGoal=[0, 0, 0, 0, 0, 0, 1],
+    effector.addObject('PositionEffector', template="Rigid3", indices=0, effectorGoal=target.MechanicalObject.position.getLinkPath(),
                        weight=5, useDirections=[1, 1, 1, 1, 1, 1])
     effector.addObject('RigidMapping')
-    effector.PositionEffector.effectorGoal.setParent(target.MechanicalObject.position)
 
 def addGoals(rootnode):
     # Goals pour les jambes
@@ -304,10 +300,6 @@ def addTarget(rootnode, position= [0, 0, 0, 0, 0, 0, 1]):
     target.addObject('EulerImplicitIntegrationScheme', firstOrder=True)
     target.addObject('CGLinearSolver', tolerance=1e-5, iterations=20, threshold=1e-5)
     target.addObject('MechanicalObject', template="Rigid3", position=position, showObject=True, showObjectScale=0.15)
-    target.addObject('PartialFixedProjectiveConstraint', template='Rigid3',
-                 fixedDirections=[0, 0, 1, 0, 0, 0])
-    target.addObject('UniformMass', template='Rigid3', totalMass=0.1)
-    target.addObject('UncoupledConstraintCorrection')
     return target
 
 def addJointConstraint(robot, jointNodes, positions):
